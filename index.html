@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Stellenwertafel – Grundschule</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html { overflow:hidden; height:100%; height:100dvh; touch-action:none; }
+body {
+  background:#eef0f3; color:#2c3540;
+  font-family:'Segoe UI',system-ui,sans-serif;
+  height:100%; height:100dvh;
+  display:flex; flex-direction:column;
+  overflow:hidden; user-select:none; touch-action:none;
+}
+#toolbar {
+  display:flex; align-items:center; flex-wrap:wrap; gap:10px;
+  padding:7px 14px; background:#fff;
+  border-bottom:1px solid #dde1e8;
+  box-shadow:0 1px 6px rgba(0,0,0,.07);
+  z-index:20; min-height:48px; flex-shrink:0;
+}
+@media (max-height:820px) {
+  #toolbar { padding:4px 10px; gap:6px; min-height:36px; }
+  .vbtn    { padding:3px 8px !important; font-size:11px !important; }
+}
+.t-group { display:flex; align-items:center; gap:5px; }
+.t-sep   { width:1px; height:20px; background:#dde1e8; flex-shrink:0; }
+.t-label { font-size:11px; color:#7a8898; white-space:nowrap; }
+.vbtn {
+  background:#f2f4f7; color:#4a5a6a;
+  border:1px solid #cdd3db; border-radius:5px;
+  padding:4px 11px; font-size:12px; cursor:pointer;
+  transition:background .12s, color .12s;
+  white-space:nowrap; font-family:inherit;
+}
+.vbtn:hover  { background:#e4e8ed; color:#1e2a38; }
+.vbtn.active { background:#1e6bb8; color:#fff; border-color:#1558a0; }
+select.t-sel {
+  background:#f2f4f7; color:#4a5a6a;
+  border:1px solid #cdd3db; border-radius:5px;
+  padding:4px 8px; font-size:12px; cursor:pointer; font-family:inherit;
+}
+#num-chip {
+  display:flex; align-items:center;
+  background:#f2f4f7; border:1px solid #cdd3db;
+  border-radius:5px; padding:4px 14px;
+  font-size:16px; font-weight:700; color:#1e6bb8;
+  letter-spacing:.5px; min-width:80px; justify-content:center;
+  transition:background .2s, color .2s, border-color .2s;
+}
+#num-chip.active { background:#1e6bb8; color:#fff; border-color:#1558a0; }
+#prog-wrap { height:3px; background:#e4e8ed; overflow:hidden; flex-shrink:0; }
+#prog-bar  { height:100%; width:0; background:#1e6bb8; transition:width .4s; }
+#wrap { flex:1; position:relative; overflow:hidden; background:#d4e2ee; }
+canvas { display:block; position:absolute; top:0; left:0; touch-action:none; }
+#pane-label {
+  position:absolute; top:18px; left:21px;
+  font-size:10.5px; font-weight:600; letter-spacing:1.8px;
+  color:rgba(60,90,135,.55); pointer-events:none; z-index:6;
+}
+#hint-label {
+  position:absolute; top:18px; right:21px;
+  font-size:10.5px; font-weight:600; letter-spacing:1.2px;
+  color:rgba(60,90,135,.55); pointer-events:none; z-index:6;
+}
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div class="t-group">
+    <span style="font-size:15px;font-weight:700;color:#1e6bb8;letter-spacing:.2px">🔢 Stellenwertafel</span>
+  </div>
+  <div class="t-sep"></div>
+  <div class="t-group">
+    <span class="t-label">Zahlenraum:</span>
+    <select id="range-sel" class="t-sel">
+      <option value="1">bis 10</option>
+      <option value="2">bis 100</option>
+      <option value="3" selected>bis 1.000</option>
+      <option value="4">bis 10.000</option>
+      <option value="5">bis 100.000</option>
+      <option value="6">bis 1.000.000</option>
+      <option value="7">bis 10.000.000</option>
+    </select>
+  </div>
+  <div class="t-sep"></div>
+  <div class="t-group">
+    <span class="t-label">Zahl:</span>
+    <div id="num-chip">0</div>
+  </div>
+  <div class="t-sep"></div>
+  <div class="t-group">
+    <button class="vbtn" id="btn-clear">⊘ Löschen</button>
+  </div>
+</div>
+<div id="prog-wrap"><div id="prog-bar"></div></div>
+
+<div id="wrap">
+  <div id="pane-label">STELLENWERTAFEL</div>
+  <div id="hint-label">Tippen: Punkt setzen · Ziehen: Stelle wechseln · 2× Tippen: löschen</div>
+  <canvas id="canvas"></canvas>
+</div>
+
+<script>
+"use strict";
+
+/* ══════════════════════════════════════════════════════
+   CONFIG
+══════════════════════════════════════════════════════ */
+var ALL_PLACES = [
+  { name:'M',  label:'Millionen',           value:1000000, color:'#8e44ad', dark:'#6c3483' },
+  { name:'HT', label:'Hundert­tausender',   value:100000,  color:'#c0392b', dark:'#922b21' },
+  { name:'ZT', label:'Zehn­tausender',      value:10000,   color:'#e67e22', dark:'#ca6f1e' },
+  { name:'T',  label:'Tausender',            value:1000,    color:'#b7950b', dark:'#9a7d0a' },
+  { name:'H',  label:'Hunderter',            value:100,     color:'#e74c3c', dark:'#c0392b' },
+  { name:'Z',  label:'Zehner',               value:10,      color:'#2980b9', dark:'#1f618d' },
+  { name:'E',  label:'Einer',                value:1,       color:'#27ae60', dark:'#1e8449' },
+];
+
+/* ══════════════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════════════ */
+var numCols  = 3;
+var carrying = {};   // {placeIdx: bool}
+
+/*
+  Dot fields:
+    id, placeIdx
+    x, y          – current render position (interpolated in updateDots)
+    sx, sy        – move start position
+    tx, ty        – move target position
+    born          – timestamp (for scale-in when stationary)
+    moving        – bool: currently flying
+    moveStart     – timestamp move began
+    moveDur       – ms for the flight
+    dying         – bool: shrinking out
+    dyingStart    – timestamp
+    _gone         – bool: remove from array
+*/
+var dots    = [];
+var nextId  = 0;
+var DPR     = 1;
+
+var lastTap = { dotId:-1, time:0 };  // für Doppeltipp-Erkennung
+
+var drag = {
+  active:false, dragging:false,
+  startX:0, startY:0, x:0, y:0,
+  fromPlace:-1, dotId:-1,
+};
+
+/* ══════════════════════════════════════════════════════
+   DOM
+══════════════════════════════════════════════════════ */
+var wrap    = document.getElementById('wrap');
+var canvas  = document.getElementById('canvas');
+var ctx     = canvas.getContext('2d');
+var numChip = document.getElementById('num-chip');
+
+/* ══════════════════════════════════════════════════════
+   HELPERS
+══════════════════════════════════════════════════════ */
+function getPlaces() { return ALL_PLACES.slice(ALL_PLACES.length - numCols); }
+
+// Count living (non-dying) dots in a column
+function liveCount(placeIdx) {
+  var n = 0;
+  for (var i = 0; i < dots.length; i++) {
+    if (dots[i].placeIdx === placeIdx && !dots[i].dying) n++;
+  }
+  return n;
+}
+
+function getTotal() {
+  var places = getPlaces(), total = 0;
+  for (var i = 0; i < numCols; i++) total += liveCount(i) * places[i].value;
+  return total;
+}
+
+function formatNum(n) {
+  if (n === 0) return '0';
+  return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+function easeOut(t)   { return 1 - Math.pow(1 - t, 3); }
+function easeInOut(t) { return t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2, 2)/2; }
+
+/* ══════════════════════════════════════════════════════
+   LAYOUT
+══════════════════════════════════════════════════════ */
+var GAP = 50;
+
+function getLayout() {
+  var W = wrap.clientWidth, H = wrap.clientHeight;
+  var tX = GAP, tY = GAP;
+  var tW = W - 2*GAP, tH = H - 2*GAP;
+  var footerH = Math.max(60, Math.min(80, tH * 0.11));
+  var headerH = Math.max(80, Math.min(120, tH * 0.17));
+  var bodyH   = tH - headerH - footerH;
+  var colW    = tW / numCols;
+  var dotR    = Math.max(9, Math.min(colW * 0.18, 26, (bodyH - 20) / 5));
+  return { W:W, H:H, tX:tX, tY:tY, tW:tW, tH:tH,
+           headerH:headerH, bodyH:bodyH, footerH:footerH,
+           colW:colW, dotR:dotR };
+}
+
+function colBody(placeIdx, L) {
+  return { x: L.tX + placeIdx * L.colW, y: L.tY + L.headerH,
+           w: L.colW, h: L.bodyH };
+}
+
+function randomPosInCol(placeIdx, L) {
+  var b = colBody(placeIdx, L);
+  var m = L.dotR + 5;
+  return {
+    x: b.x + m + Math.random() * Math.max(1, b.w - 2*m),
+    y: b.y + m + Math.random() * Math.max(1, b.h - 2*m),
+  };
+}
+
+// Wie randomPosInCol, aber wählt unter 60 Kandidaten die Position
+// mit dem größten Mindestabstand zu allen bestehenden Punkten.
+function bestPosInCol(placeIdx, L) {
+  var b  = colBody(placeIdx, L);
+  var m  = L.dotR + 5;
+  var bx = b.x + m, by = b.y + m;
+  var bw = Math.max(1, b.w - 2*m), bh = Math.max(1, b.h - 2*m);
+
+  // Aktuelle UND Zielpositionen aller Punkte in dieser Spalte sammeln
+  var occ = [];
+  for (var i = 0; i < dots.length; i++) {
+    var d = dots[i];
+    if (d.dying || d._gone || d.placeIdx !== placeIdx) continue;
+    occ.push({ x: d.x, y: d.y });
+    if (d.moving) occ.push({ x: d.tx, y: d.ty }); // Zielpos. mitberücksichtigen
+  }
+
+  var minClear = L.dotR * 2.3; // gewünschter Mindestabstand
+  var best = null, bestMin = -1;
+
+  for (var t = 0; t < 60; t++) {
+    var cx = bx + Math.random() * bw;
+    var cy = by + Math.random() * bh;
+
+    if (occ.length === 0) return { x: cx, y: cy }; // erste freie Position reicht
+
+    var closest = Infinity;
+    for (var j = 0; j < occ.length; j++) {
+      var dist = Math.hypot(cx - occ[j].x, cy - occ[j].y);
+      if (dist < closest) closest = dist;
+    }
+    if (closest > bestMin) {
+      bestMin = closest;
+      best    = { x: cx, y: cy };
+      if (closest >= minClear) break; // gut genug — frühzeitig abbrechen
+    }
+  }
+  return best || { x: bx + Math.random() * bw, y: by + Math.random() * bh };
+}
+
+// Gathering point for carry (center of column body)
+function colCenter(placeIdx, L) {
+  var b = colBody(placeIdx, L);
+  return { x: b.x + b.w / 2, y: b.y + b.h * 0.42 };
+}
+
+/* ══════════════════════════════════════════════════════
+   UPDATE DOTS  (interpolate moving dots)
+══════════════════════════════════════════════════════ */
+function updateDots(ts) {
+  for (var i = 0; i < dots.length; i++) {
+    var d = dots[i];
+    if (!d.moving) continue;
+    var elapsed = ts - d.moveStart;
+    if (elapsed < 0) continue;                // delayed start → not yet moving
+    var t  = Math.min(1, elapsed / d.moveDur);
+    var et = easeOut(t);
+    d.x = d.sx + (d.tx - d.sx) * et;
+    d.y = d.sy + (d.ty - d.sy) * et;
+    if (t >= 1) { d.x = d.tx; d.y = d.ty; d.moving = false; }
+  }
+}
+
+/* ══════════════════════════════════════════════════════
+   DRAW
+══════════════════════════════════════════════════════ */
+function draw(ts) {
+  updateDots(ts);
+
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  var L      = getLayout();
+  var places = getPlaces();
+
+  // Baby-blue background
+  ctx.fillStyle = '#d4e2ee';
+  ctx.fillRect(0, 0, L.W, L.H);
+
+  // Table shadow
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,.18)'; ctx.shadowBlur = 12; ctx.shadowOffsetY = 3;
+  ctx.fillStyle   = '#c8d8e8';
+  ctx.fillRect(L.tX, L.tY, L.tW, L.tH);
+  ctx.restore();
+
+  // ── Columns ──
+  for (var i = 0; i < numCols; i++) {
+    var p  = places[i];
+    var x0 = L.tX + i * L.colW;
+    var c  = liveCount(i);
+    var overload = c > 9;
+
+    // Body background
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,.10)' : 'rgba(0,0,0,.05)';
+    ctx.fillRect(x0, L.tY + L.headerH, L.colW, L.bodyH);
+
+    // Overload body tint
+    if (overload) {
+      var pulse = 0.5 + 0.5 * Math.sin(ts * 0.007);
+      ctx.fillStyle = 'rgba(231,76,60,' + (0.08 + 0.10 * pulse) + ')';
+      ctx.fillRect(x0, L.tY + L.headerH, L.colW, L.bodyH);
+    }
+
+    // Large faint background digit
+    if (c > 0) {
+      var cStr  = c.toString();
+      var maxH  = L.bodyH * 0.80;
+      var maxW  = (L.colW * 0.76) / (cStr.length > 1 ? cStr.length * 0.62 : 1);
+      var bgFs  = Math.min(maxH, maxW, 220);
+      ctx.save();
+      ctx.font         = 'bold ' + bgFs + 'px "Segoe UI",system-ui,sans-serif';
+      ctx.fillStyle    = 'rgba(0,0,0,.05)';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(cStr, x0 + L.colW / 2, L.tY + L.headerH + L.bodyH / 2);
+      ctx.restore();
+    }
+
+    // ── Header ──
+    ctx.fillStyle = p.color;
+    ctx.fillRect(x0, L.tY, L.colW, L.headerH);
+    var hg = ctx.createLinearGradient(x0, L.tY, x0, L.tY + L.headerH);
+    hg.addColorStop(0, 'rgba(255,255,255,.20)');
+    hg.addColorStop(1, 'rgba(0,0,0,.14)');
+    ctx.fillStyle = hg;
+    ctx.fillRect(x0, L.tY, L.colW, L.headerH);
+
+    if (overload) {
+      var p2 = 0.5 + 0.5 * Math.sin(ts * 0.007);
+      ctx.fillStyle = 'rgba(231,76,60,' + (0.35 + 0.35 * p2) + ')';
+      ctx.fillRect(x0, L.tY, L.colW, L.headerH);
+    }
+
+    // Place name – centered, big
+    var bigFont = Math.min(L.headerH * 0.84, L.colW * 0.46, 64);
+    ctx.font         = 'bold ' + bigFont + 'px "Segoe UI",system-ui,sans-serif';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle    = '#fff';
+    ctx.fillText(p.name, x0 + L.colW / 2, L.tY + L.headerH * 0.38);
+
+    // Full label
+    var smallFont = Math.max(8, Math.min(L.headerH * 0.15, 12));
+    ctx.font         = smallFont + 'px "Segoe UI",system-ui,sans-serif';
+    ctx.fillStyle    = 'rgba(255,255,255,.70)';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(p.label, x0 + L.colW / 2, L.tY + L.headerH * 0.70);
+
+    // Count + alarm – left-aligned
+    if (c > 0) {
+      var lp       = Math.max(5, L.colW * 0.07);
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign    = 'left';
+      if (overload) {
+        var alarmFont = Math.max(14, Math.min(L.headerH * 0.52, L.colW * 0.34, 42));
+        ctx.font      = 'bold ' + alarmFont + 'px "Segoe UI",system-ui,sans-serif';
+        ctx.fillStyle = '#ffe08a';
+        ctx.fillText('⚠', x0 + lp, L.tY + L.headerH * 0.97);
+        var aw        = ctx.measureText('⚠').width;
+        var cntFont2  = Math.max(12, Math.min(L.headerH * 0.40, L.colW * 0.26, 32));
+        ctx.font      = 'bold ' + cntFont2 + 'px "Segoe UI",system-ui,sans-serif';
+        ctx.fillText(c, x0 + lp + aw + 5, L.tY + L.headerH * 0.97);
+      } else {
+        var cntFont = Math.max(14, Math.min(L.headerH * 0.50, L.colW * 0.32, 40));
+        ctx.font    = 'bold ' + cntFont + 'px "Segoe UI",system-ui,sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,.90)';
+        ctx.fillText(c, x0 + lp, L.tY + L.headerH * 0.97);
+      }
+    }
+
+    // Column divider
+    if (i < numCols - 1) {
+      ctx.strokeStyle = 'rgba(0,0,0,.14)';
+      ctx.lineWidth   = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x0 + L.colW, L.tY);
+      ctx.lineTo(x0 + L.colW, L.tY + L.tH);
+      ctx.stroke();
+    }
+
+    // Footer column value
+    var contrib = c * p.value;
+    if (contrib > 0) {
+      var ffont = Math.max(20, Math.min(L.footerH * 0.68, 50));
+      ctx.font         = 'bold ' + ffont + 'px "Segoe UI",system-ui,sans-serif';
+      ctx.fillStyle    = 'rgba(44,53,64,.55)';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(formatNum(contrib), x0 + L.colW / 2, L.tY + L.headerH + L.bodyH + L.footerH / 2);
+    }
+  }
+
+  // Footer divider
+  ctx.strokeStyle = 'rgba(0,0,0,.09)';
+  ctx.lineWidth   = 1;
+  ctx.beginPath();
+  ctx.moveTo(L.tX, L.tY + L.headerH + L.bodyH);
+  ctx.lineTo(L.tX + L.tW, L.tY + L.headerH + L.bodyH);
+  ctx.stroke();
+
+  // Footer sum
+  var total = getTotal();
+  if (total > 0) {
+    ctx.font      = '500 ' + Math.max(9, Math.min(L.footerH * 0.42, 13)) + 'px "Segoe UI",system-ui,sans-serif';
+    ctx.fillStyle = 'rgba(44,53,64,.28)';
+    ctx.textBaseline = 'middle';
+    for (var si = 0; si < numCols - 1; si++) {
+      ctx.textAlign = 'center';
+      ctx.fillText('+', L.tX + (si + 1) * L.colW, L.tY + L.headerH + L.bodyH + L.footerH / 2);
+    }
+    ctx.font      = 'bold ' + Math.max(16, Math.min(L.footerH * 0.60, 38)) + 'px "Segoe UI",system-ui,sans-serif';
+    ctx.fillStyle = 'rgba(30,107,184,.75)';
+    ctx.textAlign = 'right';
+    ctx.fillText('= ' + formatNum(total), L.tX + L.tW - 8, L.tY + L.headerH + L.bodyH + L.footerH / 2);
+  }
+
+  // Table border
+  ctx.strokeStyle = 'rgba(0,0,0,.10)';
+  ctx.lineWidth   = 1;
+  ctx.strokeRect(L.tX + 0.5, L.tY + 0.5, L.tW - 1, L.tH - 1);
+
+  // ── Draw dots ──
+  for (var di = 0; di < dots.length; di++) {
+    var d = dots[di];
+    if (d.dying) continue;
+    // Ghost during drag
+    if (drag.dragging && d.id === drag.dotId) continue;
+
+    var pi    = Math.max(0, Math.min(d.placeIdx, numCols - 1));
+    var age   = ts - d.born;
+
+    // Scale-in for non-moving new dots; flying dots start full size
+    var scale;
+    if (d.moving) {
+      // Brief pop-in at start of flight
+      var flightAge = ts - d.moveStart;
+      scale = flightAge < 0 ? 0 : (flightAge < 120 ? easeOut(flightAge / 120) : 1);
+    } else {
+      scale = age < 220 ? easeOut(age / 220) : 1;
+    }
+
+    drawDot(d.x, d.y, L.dotR * scale, places[pi].color, places[pi].dark, false);
+  }
+
+  // ── Dying dots ──
+  for (var di2 = 0; di2 < dots.length; di2++) {
+    var d2 = dots[di2];
+    if (!d2.dying) continue;
+    var age2   = ts - d2.dyingStart;
+    var scale2 = Math.max(0, 1 - age2 / 220);
+    if (scale2 <= 0) { d2._gone = true; continue; }
+    var pi2 = Math.max(0, Math.min(d2.placeIdx, numCols - 1));
+    drawDot(d2.x, d2.y, L.dotR * scale2, places[pi2].color, places[pi2].dark, false);
+  }
+  dots = dots.filter(function(d) { return !d._gone; });
+
+  // ── Drag ghost + target column highlight ──
+  if (drag.active && drag.dragging) {
+    var tc2 = Math.floor((drag.x - L.tX) / L.colW);
+    if (tc2 >= 0 && tc2 < numCols && tc2 !== drag.fromPlace) {
+      ctx.fillStyle = 'rgba(255,255,255,.20)';
+      ctx.fillRect(L.tX + tc2 * L.colW + 1, L.tY + L.headerH, L.colW - 2, L.bodyH);
+    }
+    if (drag.fromPlace >= 0 && drag.fromPlace < numCols) {
+      var dp = places[drag.fromPlace];
+      drawDot(drag.x, drag.y, L.dotR * 1.13, dp.color, dp.dark, true);
+    }
+  }
+
+  // Toolbar chip
+  numChip.textContent = formatNum(total);
+  numChip.classList.toggle('active', total > 0);
+}
+
+function drawDot(x, y, r, color, darkColor, lifted) {
+  if (r <= 0) return;
+  ctx.save();
+  ctx.shadowColor   = lifted ? 'rgba(0,0,0,.50)' : 'rgba(0,0,0,.22)';
+  ctx.shadowBlur    = lifted ? 16 : 8;
+  ctx.shadowOffsetY = lifted ? 5 : 2;
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+  ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+  ctx.strokeStyle = darkColor;
+  ctx.lineWidth   = Math.max(1, r * 0.10);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,.30)';
+  ctx.beginPath();
+  ctx.ellipse(x - r*0.22, y - r*0.28, r*0.40, r*0.22, -Math.PI/5, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/* ══════════════════════════════════════════════════════
+   HIT TEST  (skip moving/dying dots)
+══════════════════════════════════════════════════════ */
+function hitTest(x, y, L) {
+  if (x < L.tX || x > L.tX + L.tW) return null;
+  if (y < L.tY || y > L.tY + L.tH) return null;
+  if (y < L.tY + L.headerH)           return null;
+  if (y > L.tY + L.headerH + L.bodyH) return null;
+
+  var placeIdx = Math.floor((x - L.tX) / L.colW);
+  if (placeIdx < 0 || placeIdx >= numCols) return null;
+
+  for (var i = dots.length - 1; i >= 0; i--) {
+    var d = dots[i];
+    if (d.dying || d.moving || d.placeIdx !== placeIdx) continue;
+    if (Math.hypot(x - d.x, y - d.y) <= L.dotR * 1.5) {
+      return { type:'dot', dotId:d.id, placeIdx:placeIdx };
+    }
+  }
+  return { type:'col', placeIdx:placeIdx };
+}
+
+/* ══════════════════════════════════════════════════════
+   DOT FACTORY
+══════════════════════════════════════════════════════ */
+function makeDot(placeIdx, x, y, ts) {
+  return {
+    id:placeIdx !== undefined ? nextId++ : nextId++,
+    placeIdx: placeIdx,
+    x:x, y:y, sx:x, sy:y, tx:x, ty:y,
+    born: ts,
+    moving:false, moveStart:0, moveDur:0,
+    dying:false,  dyingStart:0,
+    _gone:false,
+  };
+}
+
+/* ── Stationary dot (scale-in at position) ── */
+function addDotAt(placeIdx, x, y, ts, triggerCarry) {
+  if (placeIdx < 0 || placeIdx >= numCols) return null;
+  var d = makeDot(placeIdx, x, y, ts);
+  dots.push(d);
+  if (triggerCarry !== false) checkAutoCarry(placeIdx, ts);
+  return d;
+}
+
+/* ── Flying dot: starts at (sx,sy), flies to (tx,ty) ── */
+function addMovingDot(placeIdx, sx, sy, tx, ty, ts, delay) {
+  if (placeIdx < 0 || placeIdx >= numCols) return null;
+  var startTs  = ts + (delay || 0);
+  var d        = makeDot(placeIdx, sx, sy, startTs);
+  d.tx         = tx;  d.ty = ty;
+  d.sx         = sx;  d.sy = sy;
+  d.moving     = true;
+  d.moveStart  = startTs;
+  d.moveDur    = 330 + Math.random() * 80;
+  dots.push(d);
+  return d;
+}
+
+/* ── Kill dot (shrink out at current position) ── */
+function killDot(dot, ts) {
+  dot.dying      = true;
+  dot.dyingStart = ts;
+  dot.moving     = false;   // freeze position
+}
+
+/* ══════════════════════════════════════════════════════
+   CARRY / EXPAND ANIMATIONS
+══════════════════════════════════════════════════════ */
+
+/*
+  expandDot: 1 dot in fromPlace → 10 dots fly out to targetPlace
+  The 10 dots start at the source dot's position and fan out.
+*/
+function expandDot(sourceDot, targetPlace, ts, originX, originY) {
+  // originX/Y: where the user released (mouse/touch position)
+  // The 10 new dots fly FROM there; the source dot shrinks in place.
+  killDot(sourceDot, ts);
+
+  for (var i = 0; i < 10; i++) {
+    (function(delay) {
+      setTimeout(function() {
+        var L   = getLayout();
+        var tgt = bestPosInCol(targetPlace, L);
+        addMovingDot(targetPlace, originX, originY, tgt.x, tgt.y, performance.now());
+      }, delay);
+    })(i * 35);
+  }
+}
+
+/*
+  carryDotsToHigher: 10 dots in fromPlace
+    → fly toward center of fromPlace
+    → vanish
+    → 1 dot flies from center to targetPlace
+*/
+function carryDotsToHigher(fromPlace, targetPlace, ts, gatherX, gatherY) {
+  // gatherX/Y: where dots gather (mouse drop pos for manual drag, col center for auto-carry)
+  if (targetPlace < 0 || targetPlace >= numCols) { carrying[fromPlace] = false; return; }
+
+  var live = [];
+  for (var i = 0; i < dots.length; i++) {
+    if (!dots[i].dying && dots[i].placeIdx === fromPlace) live.push(dots[i]);
+  }
+  live = live.slice(0, 10);
+  if (live.length < 10) { carrying[fromPlace] = false; return; }
+
+  // Capture BEFORE fallback assignment so the flag is accurate
+  var isManual = (gatherX !== undefined);  // true = manuelles Drag, false = Auto-Carry
+
+  // Fallback to column center if no gather point given
+  if (!isManual) {
+    var L0  = getLayout();
+    var ctr = colCenter(fromPlace, L0);
+    gatherX = ctr.x; gatherY = ctr.y;
+  }
+
+  var moveDur = 270;
+  var cx = gatherX, cy = gatherY;
+
+  // All 10 fly toward the gather point (tiny jitter so they don't perfectly stack)
+  for (var j = 0; j < live.length; j++) {
+    var d = live[j];
+    d.moving    = true;
+    d.sx        = d.x;
+    d.sy        = d.y;
+    d.tx        = cx + (Math.random() - 0.5) * 8;
+    d.ty        = cy + (Math.random() - 0.5) * 8;
+    d.moveStart = ts;
+    d.moveDur   = moveDur + j * 10;
+  }
+
+  var fp = fromPlace, tp = targetPlace;
+
+  setTimeout(function() {
+    var now = performance.now();
+    for (var k = 0; k < live.length; k++) {
+      live[k].x = cx; live[k].y = cy;
+      killDot(live[k], now);
+    }
+
+    if (isManual) {
+      // Manuelles Ziehen: Punkt erscheint genau an der Mausposition
+      addDotAt(tp, cx, cy, now, true);
+    } else {
+      // Auto-Carry: Punkt fliegt vom Sammelort in die höhere Spalte
+      var L2  = getLayout();
+      var tgt = bestPosInCol(tp, L2);
+      addMovingDot(tp, cx, cy, tgt.x, tgt.y, now);
+      setTimeout(function() { checkAutoCarry(tp, performance.now()); }, 440);
+    }
+
+    carrying[fp] = false;
+  }, moveDur + live.length * 10 + 30);
+}
+
+/* ── Auto-carry: called after any tap-dot addition ── */
+function checkAutoCarry(placeIdx, ts) {
+  if (placeIdx <= 0)          return;
+  if (carrying[placeIdx])     return;
+  if (liveCount(placeIdx) < 10) return;
+
+  carrying[placeIdx] = true;
+  carryDotsToHigher(placeIdx, placeIdx - 1, ts);
+}
+
+/* ══════════════════════════════════════════════════════
+   INPUT
+══════════════════════════════════════════════════════ */
+function canvasPt(e) {
+  var r = canvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+function onDown(x, y, ts) {
+  var L   = getLayout();
+  var hit = hitTest(x, y, L);
+  if (!hit) return;
+
+  if (hit.type === 'dot') {
+    // Doppeltipp: zweiter Tap auf denselben Punkt innerhalb 350 ms → löschen
+    if (hit.dotId === lastTap.dotId && ts - lastTap.time < 350) {
+      lastTap.dotId = -1; lastTap.time = 0;
+      for (var k = 0; k < dots.length; k++) {
+        if (dots[k].id === hit.dotId && !dots[k].dying) {
+          killDot(dots[k], ts); break;
+        }
+      }
+      return;
+    }
+    lastTap.dotId = hit.dotId; lastTap.time = ts;
+    drag.active    = true;
+    drag.dragging  = false;
+    drag.startX    = x; drag.startY = y;
+    drag.x = x;         drag.y = y;
+    drag.fromPlace = hit.placeIdx;
+    drag.dotId     = hit.dotId;
+  } else {
+    // Tap → add stationary dot at tap position, clamped
+    var b  = colBody(hit.placeIdx, L);
+    var m  = L.dotR + 3;
+    var cx = Math.max(b.x + m, Math.min(b.x + b.w - m, x));
+    var cy = Math.max(b.y + m, Math.min(b.y + b.h - m, y));
+    addDotAt(hit.placeIdx, cx, cy, ts, true);
+  }
+}
+
+function onMove(x, y) {
+  if (!drag.active) return;
+  drag.x = x; drag.y = y;
+  if (!drag.dragging && Math.hypot(x - drag.startX, y - drag.startY) > 9) {
+    drag.dragging = true;
+  }
+}
+
+function onUp(x, y, ts) {
+  if (!drag.active) return;
+  drag.x = x; drag.y = y;
+
+  if (!drag.dragging) { drag.active = false; return; }
+
+  var L         = getLayout();
+  var fromPlace = drag.fromPlace;
+  var targetCol = Math.floor((x - L.tX) / L.colW);
+
+  drag.active   = false;
+  drag.dragging = false;
+
+  if (x < L.tX || x > L.tX + L.tW) return;
+  if (targetCol < 0 || targetCol >= numCols || targetCol === fromPlace) return;
+  if (Math.abs(targetCol - fromPlace) !== 1) return;   // only adjacent
+
+  // Find the dragged dot
+  var theDot = null;
+  for (var m = 0; m < dots.length; m++) {
+    if (dots[m].id === drag.dotId) { theDot = dots[m]; break; }
+  }
+  if (!theDot) return;
+
+  if (targetCol > fromPlace) {
+    // ── Drag to LOWER place: 10 dots fly out FROM drop position ──
+    expandDot(theDot, targetCol, ts, x, y);
+
+  } else {
+    // ── Drag to HIGHER place: 10 dots fly TO drop position, then merge ──
+    if (liveCount(fromPlace) >= 10 && !carrying[fromPlace]) {
+      carrying[fromPlace] = true;
+      carryDotsToHigher(fromPlace, targetCol, ts, x, y);
+    }
+    // else: not enough → dot stays
+  }
+}
+
+/* ── Mouse events ── */
+canvas.addEventListener('mousedown', function(e) {
+  var p = canvasPt(e); onDown(p.x, p.y, performance.now());
+});
+window.addEventListener('mousemove', function(e) {
+  if (!drag.active) return;
+  var p = canvasPt(e); onMove(p.x, p.y);
+});
+window.addEventListener('mouseup', function(e) {
+  var p = canvasPt(e); onUp(p.x, p.y, performance.now());
+});
+
+/* ── Touch events ── */
+canvas.addEventListener('touchstart', function(e) {
+  e.preventDefault();
+  var t = e.touches[0];
+  var p = canvasPt({clientX:t.clientX, clientY:t.clientY});
+  onDown(p.x, p.y, performance.now());
+}, {passive:false});
+window.addEventListener('touchmove', function(e) {
+  if (!drag.active) return;
+  e.preventDefault();
+  var t = e.touches[0];
+  var p = canvasPt({clientX:t.clientX, clientY:t.clientY});
+  onMove(p.x, p.y);
+}, {passive:false});
+window.addEventListener('touchend', function(e) {
+  if (!drag.active) return;
+  var ch = e.changedTouches[0];
+  var p  = canvasPt({clientX:ch.clientX, clientY:ch.clientY});
+  onUp(p.x, p.y, performance.now());
+});
+
+/* ── Controls ── */
+document.getElementById('range-sel').addEventListener('change', function() {
+  numCols  = parseInt(this.value, 10);
+  dots     = [];
+  carrying = {};
+});
+document.getElementById('btn-clear').addEventListener('click', function() {
+  dots = []; carrying = {};
+});
+
+/* ══════════════════════════════════════════════════════
+   RESIZE + LOOP
+══════════════════════════════════════════════════════ */
+function resize() {
+  DPR           = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width  = wrap.clientWidth  * DPR;
+  canvas.height = wrap.clientHeight * DPR;
+  canvas.style.width  = wrap.clientWidth  + 'px';
+  canvas.style.height = wrap.clientHeight + 'px';
+}
+window.addEventListener('resize', resize);
+function loop(ts) { requestAnimationFrame(loop); draw(ts); }
+resize();
+loop(0);
+</script>
+</body>
+</html>
